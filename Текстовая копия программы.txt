@@ -1,0 +1,208 @@
+package com.company;
+
+import java.sql.*;
+import org.w3c.dom.*;
+import org.xml.sax.*;
+import javax.xml.parsers.*;
+import java.io.*;
+import javax.xml.transform.*;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
+import javax.xml.transform.stream.StreamSource;
+import java.util.Scanner;
+
+public class Main {
+
+    public static class Init{ //создаем класс Init для использования get и set
+        //переменные для подключения
+        private String URL;
+        private String Username;
+        private String Password;
+        //переменная записей
+        private Integer N;
+
+        //инициализация
+        public Init(String Url, String Username, String Password){
+            this.URL = Url;
+            this.Username = Username;
+            this.Password = Password;
+        }
+        //далее идут методы get и set для данных подключения и N
+        public String getURL() {
+            return URL;
+        }
+
+        public void setURL(String Url) {
+            this.URL = Url;
+        }
+        public String getUsername() {
+            return Username;
+        }
+
+        public void setUsername(String Username) {
+            this.Username = Username;
+        }
+        public String getPassword() {
+            return Password;
+        }
+
+        public void setPassword(String Password) {
+            this.Password = Password;
+        }
+
+        public Integer getN() {
+            return N;
+        }
+
+        public void setN(Integer n) {
+            this.N = n;
+        }
+    }
+
+    //метод для создания первого xml файла
+    public static void Create_First_XML(int N, String url, String username, String password) {
+    try {
+        //подключаем драйвер для подключения к бд
+        Class.forName("com.mysql.cj.jdbc.Driver").getDeclaredConstructor().newInstance();
+
+        //устанавливаем подключение к бд
+        try (Connection conn = DriverManager.getConnection(url, username, password)) {
+            conn.setAutoCommit(false); //ОТКЛЮЧАЕМ AutoCommit для ускорения
+            //Если подключение удалось выводим сообщение
+            System.out.println("Connection to DB succesfull!");
+
+            //Создаем Statement для запросов в бд
+            Statement statement = conn.createStatement();
+            //Очищаем таблицу и делаем новые записи в нее
+            statement.executeUpdate("DELETE FROM TEST");
+
+            //ДЛЯ УСКОРЕНИЯ ПОДГАТАВЛИВАЕМ ЗАПРОС
+            PreparedStatement s;
+            s = conn.prepareStatement("INSERT TEST(FIELD) VALUES(?)");
+            for (int i = 1; i < N + 1; i++) {
+                s.setString(1,"" + i);
+                //statement.executeUpdate("INSERT TEST(FIELD) VALUES (" + i + ")");
+                s.executeUpdate();
+            }
+            //ВНОСИМ ИЗМЕНЕНИЯ В НАШУ БД
+            conn.commit();
+            s.close();
+            System.out.println("Added " + N + " rows");
+        }
+        //Создаем первый xml файл 1.xml
+        try (Connection conn = DriverManager.getConnection(url, username, password)) {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            DocumentBuilder builder;
+            builder = factory.newDocumentBuilder();
+
+            // создаем пустой объект Document, в котором будем xml-файл
+            Document doc = builder.newDocument();
+            Statement statement = conn.createStatement();
+            String query = "select * from TEST";
+            ResultSet rs = statement.executeQuery(query);
+
+            // создаем корневой элемент
+            Element rootElement = doc.createElementNS("", "entries");
+            // добавляем корневой элемент в объект Document
+            doc.appendChild(rootElement);
+            //добавляем второй дочерний элемент к корневому
+            while (rs.next()) {
+                String Elem = rs.getString(1);
+                rootElement.appendChild(getEntry(doc, Elem));
+            }
+            //Создаем трансформер для вывод в xml нашего документа
+            TransformerFactory transformerFactory = TransformerFactory.newInstance();
+            Transformer transformer = transformerFactory.newTransformer();
+            //для структурированного вывода
+            transformer.setOutputProperty(OutputKeys.INDENT, "yes");
+            DOMSource source = new DOMSource(doc);
+            //печатаем в файл
+            StreamResult file = new StreamResult(new File("/Res/1.xml"));
+            transformer.transform(source, file);
+            System.out.println("1.XML file creation is finished");
+        }
+        //вывод сообщения об ошибке
+    } catch (Exception ex) {
+        System.out.println("ERROR");
+
+        System.out.println(ex);
+    }
+    }
+
+    //метод для создания второго xml файла
+    public static void Create_Second_XML() throws  TransformerException{
+        //Создаем factory2 и transformer для создания 2.xml
+        TransformerFactory factory2 = TransformerFactory.newInstance();
+        Source xslt = new StreamSource(new File("/Res/Ex.xsl"));
+        Transformer transformer = factory2.newTransformer(xslt);
+        Source xml = new StreamSource(new File("/Res/1.xml"));
+        //Создаем файл 2.xml с помощью transformer
+        transformer.transform(xml, new StreamResult(new File("/Res/2.xml")));
+        System.out.println("2.XML file creation is finished");
+    }
+
+    //метод для расчета арифметической суммы
+    public static long Parse(String path) throws IOException, SAXException, ParserConfigurationException{
+        //Создаем DBF doc и DB docbuild для объекта document
+        DocumentBuilderFactory doc = DocumentBuilderFactory.newInstance();
+        DocumentBuilder docbuild  = doc.newDocumentBuilder();
+        //создаем наш докумень
+        Document document = docbuild.parse(path);
+        //записываем в list Элементы из нашего документа
+        NodeList list = document.getElementsByTagName("entry");
+        long sum = 0;
+        //считаем арифметическую сумму по файлу 2.xml
+        for(int i = 0; i < list.getLength(); i++) {
+            String fieldValue = list.item(i).getAttributes().getNamedItem("field").getNodeValue();
+            sum += Integer.parseInt(fieldValue);
+        }
+        return sum;
+
+    }
+
+    // метод для создания нового узла XML-файла
+    private static Node getEntry(Document doc, String FIELD) {
+        Element Entry = doc.createElement("entry");
+        // создаем элемент Entry
+        Entry.appendChild(getEntryElements(doc, FIELD));
+        return Entry;
+    }
+
+    // утилитный метод для создание нового узла XML-файла
+    private static Node getEntryElements(Document doc, String value) {
+        Element node = doc.createElement("field");
+        node.appendChild(doc.createTextNode(value));
+        return node;
+    }
+
+
+    public static void main(String[] args) throws ParserConfigurationException, SAXException, IOException, TransformerException {
+
+        Scanner in = new Scanner(System.in);                   //сканнер для ввода данных
+        Init CONN = new Init("","",""); //создаем объект класса Init
+        //Ввод данных для инициализации
+        System.out.println("Enter the connection details ");
+        System.out.print("Enter URL: ");
+        CONN.setURL(in.nextLine());
+        System.out.print("Enter UserName: ");
+        CONN.setUsername(in.nextLine());
+        System.out.print("Enter Password: ");
+        CONN.setPassword(in.nextLine());
+        System.out.print("Enter N: ");
+        CONN.setN(Integer.parseInt(in.nextLine()));
+        //запоминаем время начала работы программы
+        double start = System.currentTimeMillis();
+        //Вызываем основные методы решения поставленной задачи
+        //создаезаписи в бд и первый xml файл
+        Create_First_XML(CONN.getN(),CONN.getURL(),CONN.getUsername(),CONN.getPassword());
+        //посредством xslt создаем второй xml файл
+        Create_Second_XML();
+        //выводим в консоль арифметическую сумму элементов файла 2.xml
+        System.out.println("SUM = " + Parse("/Res/2.xml"));
+        //запомниаем время конца работы программы
+        double finish = System.currentTimeMillis();
+        //выводим время работы программы в консоль
+        double timeConsumedMillis = (finish - start)/1000;
+        System.out.println("Program execution time " + timeConsumedMillis + "sec");
+    }
+}
